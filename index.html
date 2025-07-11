@@ -8,9 +8,12 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- jsPDF library for PDF generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <!-- Chosen Palette: Calm Professional -->
-    <!-- Application Structure Plan: A two-panel SPA. The left panel contains a streamlined form for general invoice details (number, date, place), client information, and the commercial gesture amount. The right panel provides a real-time, clean preview of the "Avoir / Geste Commercial" document, structured like a standard invoice. This design prioritizes efficiency and clarity for generating formal financial documents. A print function allows for easy PDF generation. -->
-    <!-- Visualization & Content Choices: Report Info (invoice template) -> Goal (generate a formal commercial gesture invoice) -> Presentation (HTML form + live invoice preview div) -> Interaction (oninput/onchange events update financial calculations and textual fields in real-time) -> Justification (Provides a quick, accurate, and visually standard way to create commercial gesture invoices, focusing on financial clarity) -> Library/Method (Vanilla JS, Tailwind CSS). -->
+    <!-- Application Structure Plan: A two-panel SPA. The left panel contains a streamlined form for general invoice details (number, date, place), client information, the commercial gesture amount, and a new interactive signature pad. The right panel provides a real-time, clean preview of the "Avoir / Geste Commercial" document, structured like a standard invoice, now including the drawn signature. This design prioritizes efficiency and clarity for generating formal financial documents, offering a personalized touch. A download function allows for easy PDF generation. -->
+    <!-- Visualization & Content Choices: Report Info (invoice template) -> Goal (generate a formal commercial gesture invoice with client signature) -> Presentation (HTML form + live invoice preview div, including a signature canvas) -> Interaction (oninput/onchange events update financial calculations and textual fields in real-time; mouse/touch events enable drawing on signature canvas) -> Justification (Provides a quick, accurate, and visually standard way to create commercial gesture invoices, focusing on financial clarity and adding a personal, verifiable touch via signature) -> Library/Method (Vanilla JS, Tailwind CSS, jsPDF for PDF generation, html2canvas for capturing signature canvas). -->
     <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
     <style>
         body {
@@ -42,6 +45,12 @@
                 padding: 0 !important;
                 background-color: white !important;
             }
+        }
+        #signature-pad {
+            border: 1px solid #ccc;
+            border-radius: 0.5rem;
+            background-color: #f9f9f9;
+            touch-action: none; /* Prevent scrolling on touch devices */
         }
     </style>
 </head>
@@ -106,6 +115,25 @@
                                     <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3">
                                         <span class="text-gray-500 sm:text-sm">€</span>
                                     </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <h2 class="text-xl font-semibold border-b pb-2 mb-4 text-stone-700">Signature du Client</h2>
+                            <div class="space-y-4">
+                                <div>
+                                    <label for="signer-name" class="block text-sm font-medium text-stone-600">Nom du signataire</label>
+                                    <input type="text" id="signer-name" placeholder="Votre Nom et Prénom" class="mt-1 block w-full rounded-md border-stone-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2">
+                                </div>
+                                <div>
+                                    <label for="signer-title" class="block text-sm font-medium text-stone-600">Votre Fonction</label>
+                                    <input type="text" id="signer-title" placeholder="Ex: Directeur Général" class="mt-1 block w-full rounded-md border-stone-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2">
+                                </div>
+                                <div class="border border-stone-300 rounded-md p-2 bg-stone-50">
+                                    <label class="block text-sm font-medium text-stone-600 mb-2">Dessinez votre signature ici :</label>
+                                    <canvas id="signature-pad" class="w-full h-32"></canvas>
+                                    <button type="button" id="clear-signature" class="mt-2 px-3 py-1 bg-red-500 text-white text-xs font-semibold rounded-md hover:bg-red-600 transition">Effacer la signature</button>
                                 </div>
                             </div>
                         </div>
@@ -177,6 +205,12 @@
                                 </table>
                             </div>
                              
+                            <div class="text-right pt-8">
+                                <img id="preview-signature-image" class="w-48 h-24 object-contain mx-auto mb-2" style="display: none;">
+                                <p class="font-semibold" id="preview-signer-name"></p>
+                                <p class="text-sm text-stone-600" id="preview-signer-title"></p>
+                            </div>
+
                             <div class="text-center pt-6 text-xs text-stone-500">
                                 <p class="font-semibold">VISTALID</p>
                                 <p>SIRET 123 456 789 00010 - RCS Bordeaux - Capital Social 1000€</p>
@@ -187,8 +221,8 @@
             </div>
             
             <div id="actions-section" class="mt-8 flex justify-center items-center gap-4">
-                <button type="button" id="print-button" class="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition">
-                    Imprimer le Document
+                <button type="button" id="download-pdf-button" class="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition">
+                    Télécharger le PDF
                 </button>
                  <button type="reset" form="invoice-form" class="px-6 py-3 bg-stone-200 text-stone-700 font-semibold rounded-lg hover:bg-stone-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-stone-500 transition">
                     Réinitialiser
@@ -211,6 +245,8 @@
                 clientAddress: document.getElementById('client-address'),
                 clientLegal: document.getElementById('client-legal'),
                 amountHT: document.getElementById('amount-ht'),
+                signerName: document.getElementById('signer-name'),
+                signerTitle: document.getElementById('signer-title'),
             };
 
             const preview = {
@@ -224,7 +260,95 @@
                 subtotal: document.getElementById('preview-subtotal'),
                 tva: document.getElementById('preview-tva'),
                 total: document.getElementById('preview-total'),
+                signerName: document.getElementById('preview-signer-name'),
+                signerTitle: document.getElementById('preview-signer-title'),
+                signatureImage: document.getElementById('preview-signature-image'),
             };
+
+            const signaturePadCanvas = document.getElementById('signature-pad');
+            const signaturePadCtx = signaturePadCanvas.getContext('2d');
+            let isDrawing = false;
+            let lastX = 0;
+            let lastY = 0;
+
+            function setupSignaturePad() {
+                // Set canvas resolution for better quality on high-DPI screens
+                const dpi = window.devicePixelRatio || 1;
+                signaturePadCanvas.width = signaturePadCanvas.offsetWidth * dpi;
+                signaturePadCanvas.height = signaturePadCanvas.offsetHeight * dpi;
+                signaturePadCtx.scale(dpi, dpi);
+                signaturePadCtx.lineWidth = 2;
+                signaturePadCtx.lineCap = 'round';
+                signaturePadCtx.strokeStyle = '#000';
+                signaturePadCtx.fillStyle = '#f9f9f9'; // Match background
+                signaturePadCtx.fillRect(0, 0, signaturePadCanvas.width, signaturePadCanvas.height); // Fill background
+
+                function getCoords(e) {
+                    const rect = signaturePadCanvas.getBoundingClientRect();
+                    if (e.touches && e.touches.length > 0) {
+                        return {
+                            x: (e.touches[0].clientX - rect.left) / dpi,
+                            y: (e.touches[0].clientY - rect.top) / dpi
+                        };
+                    }
+                    return {
+                        x: (e.clientX - rect.left) / dpi,
+                        y: (e.clientY - rect.top) / dpi
+                    };
+                }
+
+                function startDrawing(e) {
+                    isDrawing = true;
+                    [lastX, lastY] = [getCoords(e).x, getCoords(e).y];
+                    signaturePadCtx.beginPath();
+                    signaturePadCtx.moveTo(lastX, lastY);
+                }
+
+                function draw(e) {
+                    if (!isDrawing) return;
+                    e.preventDefault(); // Prevent scrolling on touch
+                    const { x, y } = getCoords(e);
+                    signaturePadCtx.lineTo(x, y);
+                    signaturePadCtx.stroke();
+                    [lastX, lastY] = [x, y];
+                }
+
+                function stopDrawing() {
+                    isDrawing = false;
+                    updateSignaturePreview();
+                }
+
+                signaturePadCanvas.addEventListener('mousedown', startDrawing);
+                signaturePadCanvas.addEventListener('mousemove', draw);
+                signaturePadCanvas.addEventListener('mouseup', stopDrawing);
+                signaturePadCanvas.addEventListener('mouseout', stopDrawing); // Stop drawing if mouse leaves canvas
+
+                signaturePadCanvas.addEventListener('touchstart', startDrawing, { passive: false });
+                signaturePadCanvas.addEventListener('touchmove', draw, { passive: false });
+                signaturePadCanvas.addEventListener('touchend', stopDrawing);
+                signaturePadCanvas.addEventListener('touchcancel', stopDrawing);
+
+                document.getElementById('clear-signature').addEventListener('click', clearSignature);
+            }
+
+            function clearSignature() {
+                signaturePadCtx.clearRect(0, 0, signaturePadCanvas.width, signaturePadCanvas.height);
+                signaturePadCtx.fillStyle = '#f9f9f9'; // Re-fill background
+                signaturePadCtx.fillRect(0, 0, signaturePadCanvas.width, signaturePadCanvas.height);
+                preview.signatureImage.style.display = 'none';
+                preview.signatureImage.src = '';
+            }
+
+            function updateSignaturePreview() {
+                if (!signaturePadCanvas.getContext('2d').getImageData(0, 0, signaturePadCanvas.width, signaturePadCanvas.height).data.some(channel => channel !== 0)) {
+                    // Canvas is empty
+                    preview.signatureImage.style.display = 'none';
+                    preview.signatureImage.src = '';
+                } else {
+                    preview.signatureImage.src = signaturePadCanvas.toDataURL();
+                    preview.signatureImage.style.display = 'block';
+                }
+            }
 
             function formatCurrency(value) {
                 const number = parseFloat(value);
@@ -254,13 +378,19 @@
                 preview.subtotal.textContent = formatCurrency(ht);
                 preview.tva.textContent = formatCurrency(tva);
                 preview.total.textContent = formatCurrency(ttc);
+
+                preview.signerName.textContent = fields.signerName.value || '';
+                preview.signerTitle.textContent = fields.signerTitle.value || '';
+                
+                updateSignaturePreview(); // Update signature image in preview
             }
 
             // Set today's date by default
             const today = new Date().toISOString().split('T')[0];
             fields.issueDate.value = today;
             
-            // Initial update
+            // Initial setup and update
+            setupSignaturePad();
             updatePreview();
 
             // Event Listeners
@@ -271,12 +401,48 @@
                 setTimeout(() => {
                     fields.issueDate.value = today; // Reset date to today
                     fields.issuePlace.value = ''; // Clear lieu d'émission on reset
+                    clearSignature(); // Clear signature on reset
                     updatePreview();
                 }, 0); // Update after reset
             });
 
-            document.getElementById('print-button').addEventListener('click', () => {
-                window.print();
+            document.getElementById('download-pdf-button').addEventListener('click', async () => {
+                const { jsPDF } = window.jspdf;
+                const element = document.getElementById('preview-document');
+                
+                // Temporarily hide actions and form for clean PDF generation
+                const formSection = document.getElementById('form-section');
+                const headerSection = document.getElementById('header-section');
+                const actionsSection = document.getElementById('actions-section');
+                const originalFormDisplay = formSection.style.display;
+                const originalHeaderDisplay = headerSection.style.display;
+                const originalActionsDisplay = actionsSection.style.display;
+
+                formSection.style.display = 'none';
+                headerSection.style.display = 'none';
+                actionsSection.style.display = 'none';
+
+                const doc = new jsPDF('p', 'pt', 'a4'); 
+                
+                const margin = 20; 
+                const scaleFactor = 0.75; 
+
+                doc.html(element, {
+                    callback: function (doc) {
+                        doc.save('Geste_Commercial.pdf');
+                        // Restore original displays
+                        formSection.style.display = originalFormDisplay;
+                        headerSection.style.display = originalHeaderDisplay;
+                        actionsSection.style.display = originalActionsDisplay;
+                    },
+                    x: margin,
+                    y: margin,
+                    html2canvas: {
+                        scale: scaleFactor,
+                        width: element.offsetWidth, 
+                        windowWidth: element.scrollWidth, 
+                    },
+                });
             });
         });
     </script>
